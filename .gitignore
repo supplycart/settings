@@ -2,4 +2,4 @@ vendor
 .idea
 .vscode
 .phpunit.result.cache
-composer.lock
+/.phpunit.cache/

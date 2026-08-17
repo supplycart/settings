@@ -1,24 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Supplycart\Settings\Contracts;
 
-use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Supplycart\Settings\Models\Setting;
 
-/**
- * Interface HasSettings
- * @package Supplycart\Settings\Contracts
- *
- * @property $settings
- */
 interface HasSettings
 {
-    public function settings(): MorphOne;
+    public function getSetting(?string $key = null, mixed $default = null): mixed;
 
-    public function getSetting(string $key, $default = null);
+    /** @param array<string, mixed>|string $key */
+    public function setSetting(array|string $key, mixed $value = null): Setting;
 
-    public function setSetting(string $key, $value = null);
-
+    /** @return array<string, mixed> */
     public static function getDefaultSettings(): array;
 
     public function getCacheKey(): string;
+
+    /** @return class-string<Setting> */
+    public function getSettingModel(): string;
 }

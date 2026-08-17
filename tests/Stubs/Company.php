@@ -1,18 +1,22 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Supplycart\Settings\Tests\Stubs;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Supplycart\Settings\Contracts\HasSettings as SettingsContract;
-use Supplycart\Settings\Database\Factories\CompanyFactory;
 use Supplycart\Settings\Traits\HasSettings;
 
-class Company extends Model implements SettingsContract
+final class Company extends Model implements SettingsContract
 {
+    /** @use HasFactory<CompanyFactory> */
     use HasFactory;
+
     use HasSettings;
 
+    /** @return array<string, mixed> */
     #[\Override]
     public static function getDefaultSettings(): array
     {
