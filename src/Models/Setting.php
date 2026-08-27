@@ -1,83 +1,107 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Supplycart\Settings\Models;
 
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use LogicException;
 use Supplycart\Settings\Contracts\HasSettings;
 use Supplycart\Settings\Events\SettingSaved;
+use Supplycart\Settings\Observers\SettingObserver;
+use UnexpectedValueException;
 
+/**
+ * @property int $id
+ * @property string $model_type
+ * @property int|string $model_id
+ * @property array<string, mixed> $values
+ * @property-read Model $model
+ */
+#[ObservedBy(SettingObserver::class)]
 class Setting extends Model
 {
+    /** @var list<string> */
     protected $fillable = [
         'values',
     ];
 
+    /** @var array<string, class-string> */
     protected $dispatchesEvents = [
         'saved' => SettingSaved::class,
     ];
 
-    protected static $cacheTag = 'settings';
-
-    public function model()
+    /** @return MorphTo<Model, $this> */
+    public function model(): MorphTo
     {
         return $this->morphTo();
     }
 
-    public static function for(HasSettings $model): Setting
+    public static function for(HasSettings $model): static
     {
-        /** @var \Supplycart\Settings\Contracts\HasSettings $model */
-        $setting = Cache::tags(static::$cacheTag)->rememberForever(
-            $model->getCacheKey(),
-            function () use ($model) {
-                if ($model->settings()->exists()) {
-                    return $model->settings;
-                }
+        if (! $model instanceof Model || ! $model->exists) {
+            throw new LogicException('Settings are only available for persisted Eloquent models.');
+        }
 
-                return $model->settings()->create([
-                    'values' => $model::getDefaultSettings(),
-                ]);
-            }
-        );
+        $cache = Cache::memo();
+        $cacheKey = $model->getCacheKey();
+        $setting = $cache->get($cacheKey);
+
+        if ($setting !== null && ! $setting instanceof static) {
+            $cache->forget($cacheKey);
+
+            throw new UnexpectedValueException('The cached settings value is not a Setting model.');
+        }
+
+        if ($setting instanceof static) {
+            return $setting;
+        }
+
+        $setting = $model->morphOne($model->getSettingModel(), 'model')->firstOrCreate([], [
+            'values' => $model::getDefaultSettings(),
+        ]);
+
+        if (! $setting instanceof static) {
+            throw new UnexpectedValueException('The configured settings model does not match the called Setting class.');
+        }
+
+        $cache->forever($cacheKey, $setting);
 
         return $setting;
     }
 
-    public function get(string $key = null, $default = null)
+    public static function cacheKey(string $modelType, int|string $modelId): string
     {
-        return $key ? data_get($this->values, $key, $default) : $this->values;
+        return "settings:{$modelType}:{$modelId}";
     }
 
-    /**
-     * @param array|string $key
-     * @param null $value
-     *
-     * @return Setting
-     */
-    public function set($key, $value = null)
+    public function get(?string $key = null, mixed $default = null): mixed
+    {
+        return $key === null ? $this->values : data_get($this->values, $key, $default);
+    }
+
+    /** @param array<string, mixed>|string $key */
+    public function set(array|string $key, mixed $value = null): static
     {
         $values = $this->values;
 
         if (is_array($key)) {
-            $values = array_merge($this->values, $key);
+            $values = array_replace_recursive($values, $key);
         } else {
-            $values = data_set($values, $key, $value);
+            Arr::set($values, $key, $value);
         }
 
-        $this->values = $values;
-
-        $this->save();
-
-        Cache::tags(static::$cacheTag)->forget($this->model->getCacheKey());
+        $this->forceFill(['values' => $values])->saveOrFail();
 
         return $this;
     }
 
+    /** @return array<string, string> */
     #[\Override]
-    public function attributesToArray()
-    {
-        return $this->values;
-    }
     protected function casts(): array
     {
         return [

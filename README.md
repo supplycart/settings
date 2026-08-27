@@ -1,58 +1,131 @@
 # Laravel Settings
 
-Allows eloquent models to have its own settings
+Typed, cached settings for Laravel 13 Eloquent models.
+
+The package stores one JSON settings document per model, supports dot-notation
+reads and writes, broadcasts changes after the database transaction commits,
+and uses Laravel's memoized cache repository to avoid repeated reads within a
+request.
+
+## Requirements
+
+- PHP 8.5 or later
+- Laravel 13
 
 ## Installation
 
-To install, run this on your Laravel installation:
-```shell
+```bash
 composer require supplycart/settings
+php artisan vendor:publish --tag=settings-migrations
+php artisan migrate
 ```
 
-Then publish the migration file:
-```shell
-php artisan vendor:publish --tag=migrations --provider=Supplycart\Settings\Providers\SettingsServiceProvider
+Publish the optional configuration when using a custom `Setting` subclass:
+
+```bash
+php artisan vendor:publish --tag=settings-config
 ```
 
 ## Usage
 
-To use, you just need to implement the `Supplycart\Settings\Contracts\HasSettings` contract and use `Supplycart\Settings\Traits\HasSettings` trait:
+Implement the contract and use the trait on a persisted Eloquent model:
 
 ```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
 use Supplycart\Settings\Contracts\HasSettings as HasSettingsContract;
 use Supplycart\Settings\Traits\HasSettings;
 
-class User extends Model implements HasSettingsContract
+final class Company extends Model implements HasSettingsContract
 {
     use HasSettings;
-    
-    public function getDefaultSettings(): array
+
+    public static function getDefaultSettings(): array
     {
-        return [];
+        return [
+            'timezone' => 'Asia/Kuala_Lumpur',
+            'notifications' => [
+                'email' => true,
+            ],
+        ];
     }
 }
 ```
 
-### Methods
+Read settings with optional dot notation and fallback values:
 
-#### getSetting($key, $default = null)
-Retrieve model setting by key. You can use dot notations to get nested setting e.g
 ```php
-$user->getSetting('timezone', 'Asia/Kuala_Lumpur');
-$user->getSetting('lang', 'en_my');
-$user->getSetting('subscription.newsletter', false);
+$company->getSetting();
+$company->getSetting('timezone');
+$company->getSetting('notifications.email', false);
 ```
 
-#### setSetting($key, $value)
-Set model setting using key. You can use dot notation same like `getSetting` method e.g
+Write one setting or merge several settings:
+
 ```php
-$user->setSetting('timezone', 'UTC');
-$user->setSetting('lang', 'en_us');
-$user->setSetting('subscription.newsletter', true);
+$company->setSetting('timezone', 'UTC');
+
+$company->setSetting([
+    'timezone' => 'UTC',
+    'notifications' => ['email' => false],
+]);
 ```
 
-#### getSettings()
-Get all settings. It will return array of settings
+Array writes are merged recursively so unrelated nested settings remain intact.
+
+## Custom setting model
+
+Extend the package model and configure it in `config/settings.php`:
+
 ```php
-$settings = $user->getSettings(); // ['timezone' => 'UTC', 'lang' => 'en_us', 'subscription' => ['newsletter' => true]];
+use App\Models\Setting;
+
+return [
+    'model' => Setting::class,
+];
 ```
+
+The configured class must extend `Supplycart\Settings\Models\Setting`.
+
+## Laravel 13 behavior
+
+- `Cache::memo()` provides request-local memoization backed by the configured
+  application cache, without requiring a cache driver that supports tags.
+- `#[ObservedBy]` invalidates cache entries whenever a setting is saved or
+  deleted, including updates made outside `setSetting()`.
+- Settings are created through `firstOrCreate()` and protected by a unique
+  `(model_type, model_id)` database constraint.
+- `SettingSaved` broadcasts after commit, preventing rolled-back values from
+  being emitted.
+
+## Upgrading from the previous major version
+
+This release intentionally contains breaking changes:
+
+- PHP 8.5 and Laravel 13 are required.
+- `HasSettings::getSettingModel()` is now part of the contract. The supplied
+  trait implements it automatically.
+- Models must be persisted before settings can be read or written.
+- Invalid custom model configuration and invalid cached values now throw clear
+  exceptions.
+- `Setting::toArray()` uses normal Eloquent serialization. Broadcast payloads
+  continue to contain the settings values themselves.
+- The settings table now requires one row per morph owner. Deduplicate existing
+  rows before adding the unique `(model_type, model_id)` constraint.
+
+## Development
+
+```bash
+composer lint:check
+composer analyse
+composer test
+composer test:coverage
+```
+
+Pint enforces formatting, Larastan/PHPStan runs at level `max`, and CI enforces
+at least 85% line coverage.

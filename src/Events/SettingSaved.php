@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Supplycart\Settings\Events;
 
 use Illuminate\Broadcasting\InteractsWithSockets;
@@ -9,42 +11,25 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Supplycart\Settings\Models\Setting;
 
-class SettingSaved implements ShouldBroadcast
+final class SettingSaved implements ShouldBroadcast
 {
     use Dispatchable;
     use InteractsWithSockets;
     use SerializesModels;
-    /**
-     * @var Setting
-     */
-    public $setting;
 
-    /**
-     * Create a new event instance.
-     */
-    public function __construct(Setting $setting)
-    {
-        $this->setting = $setting;
-    }
+    public bool $afterCommit = true;
 
-    /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return \Illuminate\Broadcasting\Channel|array
-     */
+    public function __construct(public readonly Setting $setting) {}
+
     #[\Override]
-    public function broadcastOn()
+    public function broadcastOn(): PrivateChannel
     {
         return new PrivateChannel("settings.{$this->setting->model_type}.{$this->setting->model_id}");
     }
 
-    /**
-     * Get the data to broadcast.
-     *
-     * @return array
-     */
-    public function broadcastWith()
+    /** @return array<string, mixed> */
+    public function broadcastWith(): array
     {
-        return $this->setting->toArray();
+        return $this->setting->values;
     }
 }

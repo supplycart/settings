@@ -1,43 +1,65 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Supplycart\Settings\Traits;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use LogicException;
+use Supplycart\Settings\Contracts\HasSettings as HasSettingsContract;
 use Supplycart\Settings\Models\Setting;
 
+/**
+ * @phpstan-require-extends Model
+ *
+ * @phpstan-require-implements HasSettingsContract
+ */
 trait HasSettings
 {
+    /** @return MorphOne<Setting, $this> */
     public function settings(): MorphOne
     {
         return $this->morphOne($this->getSettingModel(), 'model');
     }
 
-    public function getSetting(string $key = null, $default = null)
+    public function getSetting(?string $key = null, mixed $default = null): mixed
     {
-        $model = $this->getSettingModel();
+        $settingModel = $this->getSettingModel();
 
-        return $model::for($this)->get($key, $default);
+        return $settingModel::for($this)->get($key, $default);
     }
 
-    /**
-     * @param string|array $key
-     *
-     * @return \Supplycart\Settings\Models\Setting
-     */
-    public function setSetting($key, mixed $value = null)
+    /** @param array<string, mixed>|string $key */
+    public function setSetting(array|string $key, mixed $value = null): Setting
     {
-        $model = $this->getSettingModel();
+        $settingModel = $this->getSettingModel();
 
-        return $model::for($this)->set($key, $value);
+        return $settingModel::for($this)->set($key, $value);
     }
 
     public function getCacheKey(): string
     {
-        return 'settings:' . $this::class . ':' . $this->getKey();
+        $key = $this->getKey();
+
+        if (! is_int($key) && ! is_string($key)) {
+            throw new LogicException('Settings are only available for persisted models.');
+        }
+
+        $settingModel = $this->getSettingModel();
+
+        return $settingModel::cacheKey($this->getMorphClass(), $key);
     }
 
+    /** @return class-string<Setting> */
     public function getSettingModel(): string
     {
-        return config('settings.model', Setting::class);
+        $model = config('settings.model', Setting::class);
+
+        if (! is_string($model) || ! is_a($model, Setting::class, true)) {
+            throw new LogicException('The settings.model configuration value must extend '.Setting::class.'.');
+        }
+
+        return $model;
     }
 }
